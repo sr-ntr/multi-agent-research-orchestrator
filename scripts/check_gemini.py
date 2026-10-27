@@ -78,7 +78,10 @@ def check_model_list() -> bool:
         missing = wanted - available
         detail = f"{len(models)} models available"
         if missing:
+            embed_options = [m for m in available if "embed" in m.lower()]
             detail += f"; MISSING: {', '.join(sorted(missing))}"
+            if any("embed" in m for m in missing) and embed_options:
+                detail += f" (available embedding models: {', '.join(sorted(embed_options)[:4])})"
         else:
             detail += f"; all configured IDs found"
         _pass(label, detail)

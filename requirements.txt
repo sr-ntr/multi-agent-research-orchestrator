@@ -31,5 +31,4 @@ numpy>=1.26.0
 pytest>=8.0.0
 pytest-mock>=3.14.0
 
-# Optional: Tavily web search (install manually if using)
 # tavily-python>=0.3.0

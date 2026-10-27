@@ -23,7 +23,9 @@ MODEL_FAST: str = os.environ.get("MODEL_FAST", "gemini-2.0-flash-lite")
 MODEL_STRONG: str = os.environ.get("MODEL_STRONG", "gemini-2.0-flash")
 MODEL_JUDGE: str = os.environ.get("MODEL_JUDGE", MODEL_STRONG)
 
-EMBEDDING_MODEL: str = os.environ.get("EMBEDDING_MODEL", "gemini-embedding-004")
+EMBEDDING_MODEL: str = os.environ.get("EMBEDDING_MODEL", "text-embedding-004")
+if EMBEDDING_MODEL == "gemini-embedding-004":
+    EMBEDDING_MODEL = "text-embedding-004"
 EMBEDDING_DIM: int = int(os.environ.get("EMBEDDING_DIM", "768"))
 
 
