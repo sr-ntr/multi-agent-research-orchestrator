@@ -28,8 +28,6 @@ import json
 from pathlib import Path
 from typing import Literal
 
-import google.generativeai as genai  # type: ignore
-
 from src.config import EMBEDDING_DIM, EMBEDDING_MODEL, GOOGLE_API_KEY
 
 logger = logging.getLogger(__name__)
@@ -107,6 +105,53 @@ def _l2_normalize(vec: list[float]) -> list[float]:
 # ---------------------------------------------------------------------------
 
 
+def _call_embed_api(texts: list[str], task_type: str) -> list[list[float]]:
+    """Invoke the Gemini embedding API using google-genai, google.generativeai, or langchain."""
+    # 1. Try google-genai (v1.0+)
+    try:
+        from google import genai  # type: ignore
+        from google.genai import types  # type: ignore
+        client = genai.Client(api_key=GOOGLE_API_KEY)
+        model_name = EMBEDDING_MODEL if not EMBEDDING_MODEL.startswith("models/") else EMBEDDING_MODEL
+        config = types.EmbedContentConfig(task_type=task_type) if hasattr(types, "EmbedContentConfig") else None
+        res = client.models.embed_content(
+            model=model_name,
+            contents=texts,
+            config=config,
+        )
+        if hasattr(res, "embeddings") and res.embeddings:
+            return [list(emb.values) for emb in res.embeddings]
+        elif hasattr(res, "embedding") and res.embedding:
+            return [list(res.embedding.values)]
+    except (ImportError, Exception) as exc:
+        logger.debug("google-genai embedding attempt: %s", exc)
+
+    # 2. Try google-generativeai (legacy)
+    try:
+        import google.generativeai as legacy_genai  # type: ignore
+        legacy_genai.configure(api_key=GOOGLE_API_KEY)
+        model_name = f"models/{EMBEDDING_MODEL}" if not EMBEDDING_MODEL.startswith("models/") else EMBEDDING_MODEL
+        api_result = legacy_genai.embed_content(
+            model=model_name,
+            content=texts,
+            task_type=task_type,
+        )
+        raw = api_result["embedding"]
+        if isinstance(raw[0], float):
+            return [raw]
+        return raw
+    except (ImportError, Exception) as exc:
+        logger.debug("google.generativeai embedding attempt: %s", exc)
+
+    # 3. Fallback to langchain-google-genai
+    from langchain_google_genai import GoogleGenerativeAIEmbeddings  # type: ignore
+    embedder = GoogleGenerativeAIEmbeddings(
+        model=EMBEDDING_MODEL,
+        google_api_key=GOOGLE_API_KEY,
+    )
+    return embedder.embed_documents(texts)
+
+
 def embed_texts(texts: list[str], task_type: TaskType = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
     """Embed a list of texts using the Gemini embedding model.
 
@@ -125,7 +170,6 @@ def embed_texts(texts: list[str], task_type: TaskType = "RETRIEVAL_DOCUMENT") ->
     if not texts:
         return []
 
-    genai.configure(api_key=GOOGLE_API_KEY)
     conn = _get_conn()
 
     keys = [_cache_key(t, task_type) for t in texts]
@@ -153,18 +197,7 @@ def embed_texts(texts: list[str], task_type: TaskType = "RETRIEVAL_DOCUMENT") ->
         batch = to_embed[batch_start : batch_start + _BATCH_SIZE]
         batch_texts = [t for _, t, _ in batch]
 
-        api_result = genai.embed_content(
-            model=f"models/{EMBEDDING_MODEL}",
-            content=batch_texts,
-            task_type=task_type,
-        )
-
-        # embed_content returns {"embedding": vec} for a single string or
-        # {"embedding": [vec, ...]} for a list.
-        raw_embeddings = api_result["embedding"]
-        if isinstance(raw_embeddings[0], float):
-            # Single string was passed; wrap for uniform handling
-            raw_embeddings = [raw_embeddings]
+        raw_embeddings = _call_embed_api(batch_texts, task_type)
 
         for (idx, _text, key), vec in zip(batch, raw_embeddings):
             normed = _l2_normalize(vec)

@@ -61,11 +61,18 @@ def _fail(label: str, error: str) -> None:
 def check_model_list() -> bool:
     label = "model list"
     try:
-        import google.generativeai as genai  # type: ignore
-        genai.configure(api_key=GOOGLE_API_KEY)
-        models = [m.name for m in genai.list_models()]
+        models = []
+        try:
+            from google import genai  # type: ignore
+            client = genai.Client(api_key=GOOGLE_API_KEY)
+            models = [m.name for m in client.models.list()]
+        except ImportError:
+            import google.generativeai as legacy_genai  # type: ignore
+            legacy_genai.configure(api_key=GOOGLE_API_KEY)
+            models = [m.name for m in legacy_genai.list_models()]
+
         wanted = {MODEL_FAST, MODEL_STRONG, MODEL_JUDGE, EMBEDDING_MODEL}
-        # Model names in the API are prefixed with "models/"
+        # Model names in the API can be prefixed with "models/"
         available = {m.removeprefix("models/") for m in models}
         found = wanted & available
         missing = wanted - available
@@ -111,14 +118,49 @@ def check_chat() -> bool:
 def check_embedding() -> bool:
     label = "embedding"
     try:
-        import google.generativeai as genai  # type: ignore
-        genai.configure(api_key=GOOGLE_API_KEY)
-        result = genai.embed_content(
-            model=f"models/{EMBEDDING_MODEL}",
-            content="This is a test sentence.",
-            task_type="RETRIEVAL_DOCUMENT",
-        )
-        vec = result["embedding"]
+        vec = None
+        # Try google-genai
+        try:
+            from google import genai  # type: ignore
+            from google.genai import types  # type: ignore
+            client = genai.Client(api_key=GOOGLE_API_KEY)
+            model_target = EMBEDDING_MODEL if not EMBEDDING_MODEL.startswith("models/") else EMBEDDING_MODEL
+            config = types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT") if hasattr(types, "EmbedContentConfig") else None
+            res = client.models.embed_content(
+                model=model_target,
+                contents="This is a test sentence.",
+                config=config,
+            )
+            if hasattr(res, "embeddings") and res.embeddings:
+                vec = list(res.embeddings[0].values)
+            elif hasattr(res, "embedding") and res.embedding:
+                vec = list(res.embedding.values)
+        except (ImportError, Exception):
+            pass
+
+        # Try google-generativeai
+        if vec is None:
+            try:
+                import google.generativeai as legacy_genai  # type: ignore
+                legacy_genai.configure(api_key=GOOGLE_API_KEY)
+                res = legacy_genai.embed_content(
+                    model=f"models/{EMBEDDING_MODEL}",
+                    content="This is a test sentence.",
+                    task_type="RETRIEVAL_DOCUMENT",
+                )
+                vec = res["embedding"]
+            except (ImportError, Exception):
+                pass
+
+        # Try langchain-google-genai fallback
+        if vec is None:
+            from langchain_google_genai import GoogleGenerativeAIEmbeddings  # type: ignore
+            embedder = GoogleGenerativeAIEmbeddings(
+                model=EMBEDDING_MODEL,
+                google_api_key=GOOGLE_API_KEY,
+            )
+            vec = embedder.embed_query("This is a test sentence.")
+
         dim = len(vec)
         _pass(label, f"dim={dim} (configured EMBEDDING_DIM={EMBEDDING_DIM})")
         if dim != EMBEDDING_DIM:
