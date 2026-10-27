@@ -88,11 +88,11 @@ def _save_to_cache(
 
 
 def _l2_normalize(vec: list[float]) -> list[float]:
-    """L2-normalise a vector."""
-    norm = math.sqrt(sum(x * x for x in vec))
+    """L2-normalise a vector into native Python float objects."""
+    norm = math.sqrt(sum(float(x) * float(x) for x in vec))
     if norm == 0.0:
-        return vec
-    return [x / norm for x in vec]
+        return [float(x) for x in vec]
+    return [float(x) / norm for x in vec]
 
 
 # ---------------------------------------------------------------------------
@@ -132,9 +132,9 @@ def _get_fastembed_model() -> Any:
 def _call_embed_api(texts: list[str], task_type: str) -> list[list[float]]:
     """Compute embeddings locally via FastEmbed."""
     model = _get_fastembed_model()
-    # FastEmbed's model.embed() takes an iterable and returns an iterator of numpy arrays
+    # FastEmbed's model.embed() yields numpy arrays; convert each element to native float
     embeddings_iter = model.embed(texts)
-    return [list(vec) for vec in embeddings_iter]
+    return [[float(x) for x in vec] for vec in embeddings_iter]
 
 
 def embed_texts(texts: list[str], task_type: TaskType = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
