@@ -24,7 +24,7 @@ import streamlit as st
 
 from src.agents.graph import get_graph_mode
 from src.config import (
-    GOOGLE_API_KEY,
+    GROQ_API_KEY,
     MAX_FILES_PER_SESSION,
     MAX_FILE_BYTES,
     MAX_QUESTIONS_PER_SESSION,
@@ -67,14 +67,14 @@ def render_sidebar() -> tuple[str, bool, str]:
 
     # API Key Configuration
     api_key_input = st.sidebar.text_input(
-        "Google API Key",
+        "Groq API Key",
         value="",
         type="password",
-        help="Leave blank to use GOOGLE_API_KEY from environment.",
+        help="Leave blank to use GROQ_API_KEY from environment or .env.",
     )
-    effective_api_key = api_key_input.strip() or GOOGLE_API_KEY or os.environ.get("GOOGLE_API_KEY", "")
+    effective_api_key = api_key_input.strip() or GROQ_API_KEY or os.environ.get("GROQ_API_KEY", "")
     if effective_api_key:
-        os.environ["GOOGLE_API_KEY"] = effective_api_key
+        os.environ["GROQ_API_KEY"] = effective_api_key
 
     # Agent Mode
     mode = st.sidebar.selectbox(
@@ -180,10 +180,10 @@ def main() -> None:
     mode, web_enabled, api_key = render_sidebar()
 
     st.title("Document Research Assistant")
-    st.caption("Grounded document research with multi-agent planning, hybrid retrieval, and citation verification.")
+    st.caption("Grounded document research with Groq LPU models, FastEmbed hybrid retrieval, and citation verification.")
 
     if not api_key:
-        st.warning("Please provide a Google API Key in the sidebar or set GOOGLE_API_KEY in your environment.")
+        st.warning("Please provide a Groq API Key in the sidebar or set GROQ_API_KEY in your .env file.")
 
     # Render conversation history
     for msg in st.session_state.messages:

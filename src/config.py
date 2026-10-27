@@ -16,23 +16,22 @@ load_dotenv(_ROOT / ".env")
 
 
 # ---------------------------------------------------------------------------
-# Model identifiers
+# Model identifiers (Groq Cloud + FastEmbed)
 # ---------------------------------------------------------------------------
 
-MODEL_FAST: str = os.environ.get("MODEL_FAST", "gemini-2.0-flash-lite")
-MODEL_STRONG: str = os.environ.get("MODEL_STRONG", "gemini-2.0-flash")
+MODEL_FAST: str = os.environ.get("MODEL_FAST", "openai/gpt-oss-20b")
+MODEL_STRONG: str = os.environ.get("MODEL_STRONG", "openai/gpt-oss-120b")
 MODEL_JUDGE: str = os.environ.get("MODEL_JUDGE", MODEL_STRONG)
 
-EMBEDDING_MODEL: str = os.environ.get("EMBEDDING_MODEL", "gemini-embedding-001")
-if EMBEDDING_MODEL in ("text-embedding-004", "gemini-embedding-004"):
-    EMBEDDING_MODEL = "gemini-embedding-001"
-EMBEDDING_DIM: int = int(os.environ.get("EMBEDDING_DIM", "768"))
+EMBEDDING_MODEL: str = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
+EMBEDDING_DIM: int = int(os.environ.get("EMBEDDING_DIM", "384"))
 
 
 # ---------------------------------------------------------------------------
 # API keys
 # ---------------------------------------------------------------------------
 
+GROQ_API_KEY: str = os.environ.get("GROQ_API_KEY", "")
 GOOGLE_API_KEY: str = os.environ.get("GOOGLE_API_KEY", "")
 TAVILY_API_KEY: str = os.environ.get("TAVILY_API_KEY", "")
 

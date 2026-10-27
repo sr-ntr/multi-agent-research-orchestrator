@@ -1,5 +1,8 @@
 """
-Gemini embedding helper with a sqlite3 on-disk cache.
+Local embedding generator using FastEmbed (ONNX Runtime) with an SQLite cache.
+
+FastEmbed runs 100% locally on CPU without API calls, rate limits, or network latency.
+Default model: BAAI/bge-small-en-v1.5 (384 dimensions, L2-normalized).
 
 Public API:
     embed_texts(texts, task_type)   -- embed a list of strings, returns list[list[float]]
@@ -8,33 +11,25 @@ Public API:
 
 Cache:
     Key = sha1(model + ":" + task_type + ":" + text).
-    Stored in .cache/embeddings.db (configurable via EMBEDDING_CACHE_PATH env var).
-    Cache is transparent: callers never see cache misses.
-
-Notes:
-    - Vectors are L2-normalised after fetching (required for cosine correctness when
-      using reduced dimensionality, and good practice regardless).
-    - Batching: the Gemini embedding API accepts up to 100 texts per request.
-      We batch in chunks of 50 to stay well within the limit.
-    - Task types used: RETRIEVAL_DOCUMENT for chunks, RETRIEVAL_QUERY for queries.
+    Stored in .cache/embeddings.db.
 """
 
 import hashlib
+import json
 import logging
 import math
 import os
 import sqlite3
-import json
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal, Optional
 
-from src.config import EMBEDDING_DIM, EMBEDDING_MODEL, GOOGLE_API_KEY
+from src.config import EMBEDDING_DIM, EMBEDDING_MODEL
 
 logger = logging.getLogger(__name__)
 
 TaskType = Literal["RETRIEVAL_DOCUMENT", "RETRIEVAL_QUERY", "SEMANTIC_SIMILARITY"]
 
-_BATCH_SIZE = 50
+_BATCH_SIZE = 64
 
 # ---------------------------------------------------------------------------
 # Cache
@@ -93,7 +88,7 @@ def _save_to_cache(
 
 
 def _l2_normalize(vec: list[float]) -> list[float]:
-    """L2-normalise a vector in-place equivalent, returning a new list."""
+    """L2-normalise a vector."""
     norm = math.sqrt(sum(x * x for x in vec))
     if norm == 0.0:
         return vec
@@ -101,76 +96,59 @@ def _l2_normalize(vec: list[float]) -> list[float]:
 
 
 # ---------------------------------------------------------------------------
-# Core embedding function
+# FastEmbed Model Singleton
+# ---------------------------------------------------------------------------
+
+_FASTEMBED_INSTANCE: Optional[Any] = None
+
+
+def _get_fastembed_model() -> Any:
+    """Lazy initialization of the FastEmbed TextEmbedding model."""
+    global _FASTEMBED_INSTANCE
+    if _FASTEMBED_INSTANCE is None:
+        try:
+            from fastembed import TextEmbedding  # type: ignore
+
+            model_name = EMBEDDING_MODEL
+            # If a Gemini model name was left in config, default to BGE small
+            if "gemini" in model_name.lower() or "text-embedding" in model_name.lower():
+                model_name = "BAAI/bge-small-en-v1.5"
+
+            logger.info("Initializing FastEmbed model: %s", model_name)
+            _FASTEMBED_INSTANCE = TextEmbedding(model_name=model_name)
+        except ImportError:
+            raise ImportError(
+                "FastEmbed is not installed. Please install it:\n"
+                "  pip install fastembed\n"
+            )
+    return _FASTEMBED_INSTANCE
+
+
+# ---------------------------------------------------------------------------
+# Embedding function
 # ---------------------------------------------------------------------------
 
 
 def _call_embed_api(texts: list[str], task_type: str) -> list[list[float]]:
-    """Invoke the Gemini embedding API using google-genai, google.generativeai, or langchain."""
-    # 1. Try google-genai (v1.0+)
-    try:
-        from google import genai  # type: ignore
-        from google.genai import types  # type: ignore
-        client = genai.Client(api_key=GOOGLE_API_KEY)
-        model_name = EMBEDDING_MODEL if not EMBEDDING_MODEL.startswith("models/") else EMBEDDING_MODEL
-        config = None
-        if hasattr(types, "EmbedContentConfig"):
-            try:
-                config = types.EmbedContentConfig(task_type=task_type, output_dimensionality=EMBEDDING_DIM)
-            except Exception:
-                config = types.EmbedContentConfig(task_type=task_type)
-        res = client.models.embed_content(
-            model=model_name,
-            contents=texts,
-            config=config,
-        )
-        if hasattr(res, "embeddings") and res.embeddings:
-            return [list(emb.values) for emb in res.embeddings]
-        elif hasattr(res, "embedding") and res.embedding:
-            return [list(res.embedding.values)]
-    except (ImportError, Exception) as exc:
-        logger.debug("google-genai embedding attempt: %s", exc)
-
-    # 2. Try google-generativeai (legacy)
-    try:
-        import google.generativeai as legacy_genai  # type: ignore
-        legacy_genai.configure(api_key=GOOGLE_API_KEY)
-        model_name = f"models/{EMBEDDING_MODEL}" if not EMBEDDING_MODEL.startswith("models/") else EMBEDDING_MODEL
-        api_result = legacy_genai.embed_content(
-            model=model_name,
-            content=texts,
-            task_type=task_type,
-        )
-        raw = api_result["embedding"]
-        if isinstance(raw[0], float):
-            return [raw]
-        return raw
-    except (ImportError, Exception) as exc:
-        logger.debug("google.generativeai embedding attempt: %s", exc)
-
-    # 3. Fallback to langchain-google-genai
-    from langchain_google_genai import GoogleGenerativeAIEmbeddings  # type: ignore
-    embedder = GoogleGenerativeAIEmbeddings(
-        model=EMBEDDING_MODEL,
-        google_api_key=GOOGLE_API_KEY,
-    )
-    return embedder.embed_documents(texts)
+    """Compute embeddings locally via FastEmbed."""
+    model = _get_fastembed_model()
+    # FastEmbed's model.embed() takes an iterable and returns an iterator of numpy arrays
+    embeddings_iter = model.embed(texts)
+    return [list(vec) for vec in embeddings_iter]
 
 
 def embed_texts(texts: list[str], task_type: TaskType = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
-    """Embed a list of texts using the Gemini embedding model.
+    """Embed a list of texts using local FastEmbed model.
 
-    Results are fetched from the sqlite cache when available; new results are
-    saved back to the cache before returning.  All vectors are L2-normalised.
+    Results are fetched from SQLite cache when available. Unseen texts are
+    embedded locally via ONNX Runtime and cached. All vectors are L2-normalised.
 
     Args:
-        texts: List of strings to embed. Empty strings are accepted and will
-            produce a zero vector (normalisation is skipped for zero vectors).
-        task_type: Gemini task type. Use RETRIEVAL_DOCUMENT for corpus chunks
-            and RETRIEVAL_QUERY for search queries.
+        texts: List of strings to embed.
+        task_type: Kept for compatibility ("RETRIEVAL_DOCUMENT" or "RETRIEVAL_QUERY").
 
     Returns:
-        List of float vectors, one per input text, each of length EMBEDDING_DIM.
+        List of float vectors, each of length EMBEDDING_DIM.
     """
     if not texts:
         return []
@@ -181,7 +159,7 @@ def embed_texts(texts: list[str], task_type: TaskType = "RETRIEVAL_DOCUMENT") ->
     cached = _load_from_cache(conn, keys)
 
     results: list[list[float]] = [[] for _ in texts]
-    to_embed: list[tuple[int, str, str]] = []  # (index, text, key)
+    to_embed: list[tuple[int, str, str]] = []
 
     for i, (text, key) in enumerate(zip(texts, keys)):
         if key in cached:
@@ -189,45 +167,46 @@ def embed_texts(texts: list[str], task_type: TaskType = "RETRIEVAL_DOCUMENT") ->
         else:
             to_embed.append((i, text, key))
 
-    logger.debug(
-        "embed_texts: %d total, %d cached, %d to embed",
-        len(texts),
-        len(texts) - len(to_embed),
-        len(to_embed),
-    )
+    if to_embed:
+        logger.debug(
+            "embed_texts: %d total, %d cached, %d to embed locally via FastEmbed",
+            len(texts),
+            len(texts) - len(to_embed),
+            len(to_embed),
+        )
 
-    # Batch the un-cached texts
-    new_cache: dict[str, list[float]] = {}
-    for batch_start in range(0, len(to_embed), _BATCH_SIZE):
-        batch = to_embed[batch_start : batch_start + _BATCH_SIZE]
-        batch_texts = [t for _, t, _ in batch]
+        new_cache: dict[str, list[float]] = {}
+        for batch_start in range(0, len(to_embed), _BATCH_SIZE):
+            batch = to_embed[batch_start : batch_start + _BATCH_SIZE]
+            batch_texts = [t for _, t, _ in batch]
 
-        raw_embeddings = _call_embed_api(batch_texts, task_type)
+            raw_embeddings = _call_embed_api(batch_texts, task_type)
 
-        for (idx, _text, key), vec in zip(batch, raw_embeddings):
-            normed = _l2_normalize(vec)
-            results[idx] = normed
-            new_cache[key] = normed
+            for (idx, _text, key), vec in zip(batch, raw_embeddings):
+                normed = _l2_normalize(vec)
+                results[idx] = normed
+                new_cache[key] = normed
 
-    _save_to_cache(conn, new_cache)
+        _save_to_cache(conn, new_cache)
+
     conn.close()
     return results
 
 
 def embed_query(text: str) -> list[float]:
-    """Embed a single query string (RETRIEVAL_QUERY task type).
+    """Embed a single query string.
 
     Args:
-        text: The query string.
+        text: Search query string.
 
     Returns:
-        A single L2-normalised float vector.
+        L2-normalised float vector.
     """
     return embed_texts([text], task_type="RETRIEVAL_QUERY")[0]
 
 
 def embed_documents(texts: list[str]) -> list[list[float]]:
-    """Embed a list of document chunks (RETRIEVAL_DOCUMENT task type).
+    """Embed a list of document chunk strings.
 
     Args:
         texts: List of chunk strings.
