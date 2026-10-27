@@ -16,7 +16,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from src.llm import get_llm, invoke_with_retry
+from src.llm import get_llm, invoke_structured, invoke_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +148,7 @@ def judge_faithfulness(answer: str, cited_evidence_text: str) -> FaithfulnessVer
     if not answer.strip():
         return FaithfulnessVerdict(claims=[], score=1.0, reason="Empty answer")
 
-    llm = get_llm("judge").with_structured_output(FaithfulnessVerdict)
+    llm = get_llm("judge")
     messages = [
         SystemMessage(content=FAITHFULNESS_JUDGE_SYSTEM),
         HumanMessage(
@@ -159,7 +159,7 @@ def judge_faithfulness(answer: str, cited_evidence_text: str) -> FaithfulnessVer
     ]
 
     try:
-        verdict = invoke_with_retry(llm, messages)
+        verdict = invoke_structured(llm, FaithfulnessVerdict, messages)
         # Ensure mathematical consistency if claims exist
         if verdict.claims:
             supported = sum(1 for c in verdict.claims if c.supported)
@@ -184,7 +184,7 @@ def judge_correctness(question: str, answer: str, reference: str) -> Correctness
     if not answer.strip():
         return CorrectnessVerdict(score=0.0, reason="Empty answer")
 
-    llm = get_llm("judge").with_structured_output(CorrectnessVerdict)
+    llm = get_llm("judge")
     messages = [
         SystemMessage(content=CORRECTNESS_JUDGE_SYSTEM),
         HumanMessage(
@@ -195,7 +195,7 @@ def judge_correctness(question: str, answer: str, reference: str) -> Correctness
     ]
 
     try:
-        verdict = invoke_with_retry(llm, messages)
+        verdict = invoke_structured(llm, CorrectnessVerdict, messages)
         # Snap score to closest of [0.0, 0.5, 1.0]
         allowed = [0.0, 0.5, 1.0]
         closest = min(allowed, key=lambda x: abs(x - verdict.score))
@@ -216,14 +216,14 @@ def judge_abstention_fallback(question: str, answer: str) -> AbstentionVerdict:
     Returns:
         AbstentionVerdict indicating whether the answer is an abstention.
     """
-    llm = get_llm("judge").with_structured_output(AbstentionVerdict)
+    llm = get_llm("judge")
     messages = [
         SystemMessage(content=ABSTENTION_JUDGE_SYSTEM),
         HumanMessage(content=ABSTENTION_JUDGE_USER.format(question=question, answer=answer)),
     ]
 
     try:
-        return invoke_with_retry(llm, messages)
+        return invoke_structured(llm, AbstentionVerdict, messages)
     except Exception as exc:
         logger.warning("Abstention fallback judge failed: %s", exc)
         return AbstentionVerdict(is_abstention=False, reason=f"Judge failed: {exc}")

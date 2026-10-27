@@ -33,7 +33,7 @@ from src.config import (
     MODEL_JUDGE,
     MODEL_STRONG,
 )
-from src.llm import get_llm, text_of
+from src.llm import get_llm, invoke_structured, text_of
 
 
 # ---------------------------------------------------------------------------
@@ -133,10 +133,13 @@ class _Greeting(BaseModel):
 def check_structured_output() -> bool:
     label = "structured output"
     try:
+        from langchain_core.messages import HumanMessage
+
         llm = get_llm("fast")
-        structured = llm.with_structured_output(_Greeting)
-        result = structured.invoke(
-            "Respond with a greeting in English. Use the schema provided."
+        result = invoke_structured(
+            llm,
+            _Greeting,
+            [HumanMessage(content="Respond with a greeting in English. Use the schema provided.")],
         )
         if not isinstance(result, _Greeting):
             _fail(label, f"got {type(result).__name__} instead of _Greeting")

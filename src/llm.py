@@ -7,8 +7,10 @@ Exports:
     UsageCallback       -- BaseCallbackHandler that accumulates token usage
 """
 
+import json
 import logging
-from typing import Any, Literal
+import re
+from typing import Any, Literal, Optional
 
 from langchain_core.messages import BaseMessage
 from langchain_core.outputs import LLMResult
@@ -252,3 +254,90 @@ def invoke_with_retry(llm: Any, messages: list, **kwargs: Any) -> Any:
         The model response message.
     """
     return llm.invoke(messages, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Structured output invocation helper (Groq Cloud resilience)
+# ---------------------------------------------------------------------------
+
+
+def _extract_from_failed_generation(error_msg: str, schema: type[Any]) -> Optional[Any]:
+    """Recover schema instance from Groq tool-validation error containing failed_generation.
+
+    When open-weights models (e.g. gpt-oss-20b/120b) generate tool names like 'planner'
+    or 'verdict' instead of 'Plan' or 'Verdict', Groq rejects with HTTP 400 tool_use_failed,
+    but includes the completed valid JSON arguments in the failed_generation payload.
+    """
+    patterns = [
+        r"failed_generation['\"]\s*:\s*(['\"].*?['\"])\s*\}",
+        r"failed_generation['\"]\s*:\s*(\{.*?\})\s*\}",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, error_msg, re.DOTALL)
+        if match:
+            raw = match.group(1).strip()
+            if (raw.startswith("'") and raw.endswith("'")) or (raw.startswith('"') and raw.endswith('"')):
+                raw = raw[1:-1]
+            raw = raw.replace('\\"', '"').replace("\\'", "'").replace("\\n", "\n").replace("\\\\", "\\")
+            try:
+                data = json.loads(raw)
+            except Exception:
+                continue
+
+            args = data.get("arguments", data)
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except Exception:
+                    pass
+            if isinstance(args, dict):
+                try:
+                    return schema.model_validate(args)
+                except Exception as val_err:
+                    logger.debug("Failed schema model_validate for %s: %s", schema.__name__, val_err)
+    return None
+
+
+def invoke_structured(llm: Any, schema: type[Any], messages: list, **kwargs: Any) -> Any:
+    """Invoke an LLM returning a Pydantic schema instance using the most reliable method.
+
+    Prioritizes Groq native JSON schema / JSON mode to avoid tool name casing mismatches,
+    and automatically recovers valid payloads from failed_generation if a tool-calling
+    mismatch occurs.
+
+    Args:
+        llm: A ChatGroq or compatible LangChain chat model.
+        schema: Target Pydantic model class.
+        messages: Prompt messages.
+        **kwargs: Additional kwargs forwarded to with_structured_output.
+
+    Returns:
+        Instance of schema.
+    """
+    # 1. Try native json_schema (Groq LPU grammar constrained decoding)
+    try:
+        runnable = llm.with_structured_output(schema, method="json_schema", **kwargs)
+        return runnable.invoke(messages)
+    except Exception as exc:
+        logger.debug("Structured output with json_schema failed: %s", exc)
+
+    # 2. Try json_mode
+    try:
+        runnable = llm.with_structured_output(schema, method="json_mode", **kwargs)
+        return runnable.invoke(messages)
+    except Exception as exc:
+        logger.debug("Structured output with json_mode failed: %s", exc)
+
+    # 3. Try default method (function calling) with recovery from failed_generation
+    try:
+        runnable = llm.with_structured_output(schema, **kwargs)
+        return runnable.invoke(messages)
+    except Exception as exc:
+        err_str = str(exc)
+        if "failed_generation" in err_str:
+            recovered = _extract_from_failed_generation(err_str, schema)
+            if recovered is not None:
+                logger.info("Successfully recovered %s from failed_generation", schema.__name__)
+                return recovered
+        raise
+

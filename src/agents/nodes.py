@@ -44,7 +44,7 @@ from src.config import (
     MAX_TOOL_CALLS_PER_RESEARCHER,
 )
 from src.ledger import Evidence, build_ledger, check_citations, extract_evidence, merge_ledger
-from src.llm import get_llm, invoke_with_retry, text_of
+from src.llm import get_llm, invoke_structured, invoke_with_retry, text_of
 
 logger = logging.getLogger(__name__)
 
@@ -72,20 +72,19 @@ def planner_node(state: AgentState, *, kb=None, web_enabled: bool = False) -> di
     web_status = "enabled" if web_enabled else "disabled"
 
     llm = get_llm("fast")
-    structured = llm.with_structured_output(Plan)
-
     messages = [
         SystemMessage(content=PLANNER_SYSTEM),
         HumanMessage(content=PLANNER_USER.format(question=question, web_status=web_status)),
     ]
 
     try:
-        plan: Plan = structured.invoke(messages)
+        plan: Plan = invoke_structured(llm, Plan, messages)
     except Exception as exc:
         logger.warning("Planner failed, falling back to single sub-question: %s", exc)
+        scope = "both" if web_enabled else "documents"
         plan = Plan(
             complexity="simple",
-            subquestions=[SubQuestion(id="sq1", question=question, scope="documents")],
+            subquestions=[SubQuestion(id="sq1", question=question, scope=scope)],
         )
 
     # If web is disabled, override any web scopes
@@ -208,7 +207,7 @@ def researcher_node(
         messages.append(budget_response)
 
     # Final structured call: get ResearchResult
-    llm_structured = get_llm("fast").with_structured_output(ResearchResult)
+    llm_structured = get_llm("fast")
     # Build a clean context for the structured call
     structured_prompt = (
         f"Based on your research above, return a ResearchResult for sub-question id "
@@ -217,7 +216,7 @@ def researcher_node(
     structured_messages = messages + [HumanMessage(content=structured_prompt)]
 
     try:
-        result: ResearchResult = llm_structured.invoke(structured_messages)
+        result: ResearchResult = invoke_structured(llm_structured, ResearchResult, structured_messages)
     except Exception as exc:
         logger.warning("ResearchResult structured call failed: %s", exc)
         result = ResearchResult(
@@ -384,7 +383,6 @@ def verifier_node(state: AgentState) -> dict:
     evidence_block = format_evidence_block(cited_evidence)
 
     llm = get_llm("strong")
-    structured = llm.with_structured_output(Verdict)
     messages = [
         SystemMessage(content=VERIFIER_SYSTEM),
         HumanMessage(
@@ -393,7 +391,7 @@ def verifier_node(state: AgentState) -> dict:
     ]
 
     try:
-        verdict: Verdict = structured.invoke(messages)
+        verdict: Verdict = invoke_structured(llm, Verdict, messages)
     except Exception as exc:
         logger.warning("Verifier structured call failed: %s", exc)
         verdict = Verdict(claims=[], has_unsupported=bool(det_unsupported))

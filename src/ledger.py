@@ -26,8 +26,8 @@ from pydantic import BaseModel, field_validator
 
 logger = logging.getLogger(__name__)
 
-# Matches [id], [id1, id2], or [id1,id2] — IDs may contain letters, digits, -, :
-_CITATION_RE = re.compile(r"\[([^\[\]]+)\]")
+# Matches [id] or 【id】, [id1, id2] — IDs may contain letters, digits, -, :
+_CITATION_RE = re.compile(r"[\[【]([^\[\]【】]+)[\]】]")
 _ID_RE = re.compile(r"[\w:\-]+")
 
 
