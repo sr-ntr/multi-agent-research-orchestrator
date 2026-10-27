@@ -128,7 +128,12 @@ def check_embedding() -> bool:
             from google.genai import types  # type: ignore
             client = genai.Client(api_key=GOOGLE_API_KEY)
             model_target = EMBEDDING_MODEL if not EMBEDDING_MODEL.startswith("models/") else EMBEDDING_MODEL
-            config = types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT") if hasattr(types, "EmbedContentConfig") else None
+            config = None
+            if hasattr(types, "EmbedContentConfig"):
+                try:
+                    config = types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT", output_dimensionality=EMBEDDING_DIM)
+                except Exception:
+                    config = types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT")
             res = client.models.embed_content(
                 model=model_target,
                 contents="This is a test sentence.",

@@ -113,7 +113,12 @@ def _call_embed_api(texts: list[str], task_type: str) -> list[list[float]]:
         from google.genai import types  # type: ignore
         client = genai.Client(api_key=GOOGLE_API_KEY)
         model_name = EMBEDDING_MODEL if not EMBEDDING_MODEL.startswith("models/") else EMBEDDING_MODEL
-        config = types.EmbedContentConfig(task_type=task_type) if hasattr(types, "EmbedContentConfig") else None
+        config = None
+        if hasattr(types, "EmbedContentConfig"):
+            try:
+                config = types.EmbedContentConfig(task_type=task_type, output_dimensionality=EMBEDDING_DIM)
+            except Exception:
+                config = types.EmbedContentConfig(task_type=task_type)
         res = client.models.embed_content(
             model=model_name,
             contents=texts,
