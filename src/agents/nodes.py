@@ -181,7 +181,8 @@ def researcher_node(
 
             if tool_name in tool_map:
                 try:
-                    raw_result = tool_map[tool_name].invoke(tc)
+                    tool_input = tool_args if tool_args else (tc.get("args") if isinstance(tc, dict) and "args" in tc else tc)
+                    raw_result = tool_map[tool_name].invoke(tool_input)
                     # Extract evidence from the tool output
                     evs = extract_evidence(raw_result)
                     new_evidence.extend(evs)

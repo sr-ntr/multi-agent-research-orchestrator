@@ -33,6 +33,7 @@ Search result dict schema:
 
 import logging
 import uuid
+from pathlib import Path
 from typing import Literal, Optional
 
 import chromadb  # type: ignore
@@ -94,6 +95,7 @@ class KnowledgeBase:
         if not ids:
             self._bm25_ids: list[str] = []
             self._bm25_corpus: list[str] = []
+            self._bm25_metas: list[dict] = []
             self._bm25_index = None
             return
 
@@ -105,6 +107,7 @@ class KnowledgeBase:
 
         self._bm25_ids = ids
         self._bm25_corpus = corpus
+        self._bm25_metas = metadatas
         self._bm25_index = build_bm25(corpus)
         logger.debug("BM25 index rebuilt with %d documents", len(ids))
 
@@ -277,6 +280,33 @@ class KnowledgeBase:
     # Search
     # ------------------------------------------------------------------
 
+    def _resolve_source(self, source: Optional[str]) -> Optional[str]:
+        """Resolve a query source string to an actual stored source filename."""
+        if not source:
+            return None
+        cleaned = source.strip().lower()
+        docs = self.list_documents()
+        known_sources = [d["source"] for d in docs]
+
+        # Exact match
+        for s in known_sources:
+            if s.lower() == cleaned:
+                return s
+
+        # Stem / slug match
+        c_stem = Path(cleaned).stem.replace("_", "-")
+        for s in known_sources:
+            s_stem = Path(s.lower()).stem.replace("_", "-")
+            if s_stem == c_stem:
+                return s
+
+        # Substring match
+        for s in known_sources:
+            if cleaned in s.lower() or s.lower() in cleaned:
+                return s
+
+        return source
+
     def search(
         self,
         query: str,
@@ -296,7 +326,8 @@ class KnowledgeBase:
             List of result dicts: {chunk_id, source, heading, text, score}.
             Sorted descending by score.
         """
-        where = {"source": source} if source else None
+        canonical_source = self._resolve_source(source)
+        where = {"source": canonical_source} if canonical_source else None
 
         vector_ids: list[str] = []
         bm25_ids: list[str] = []
@@ -305,7 +336,7 @@ class KnowledgeBase:
             vector_ids = self._vector_search(query, VECTOR_FETCH, where)
 
         if mode in ("bm25", "hybrid"):
-            bm25_ids = self._bm25_search(query, BM25_FETCH, source)
+            bm25_ids = self._bm25_search(query, BM25_FETCH, canonical_source)
 
         if mode == "vector":
             ranked = [(cid, 1.0 / (RRF_K + rank)) for rank, cid in enumerate(vector_ids, 1)]
@@ -371,12 +402,24 @@ class KnowledgeBase:
             return []
 
         if source:
+            target = source.lower()
+            target_stem = Path(target).stem.replace("_", "-")
             # Filter BM25 corpus to the source, then search
-            filtered = [
-                (cid, corp)
-                for cid, corp in zip(self._bm25_ids, self._bm25_corpus)
-                if source in cid or source in corp
-            ]
+            filtered = []
+            for cid, corp, meta in zip(self._bm25_ids, self._bm25_corpus, getattr(self, "_bm25_metas", [])):
+                m_src = (meta or {}).get("source", "").lower()
+                m_stem = Path(m_src).stem.replace("_", "-")
+                cid_slug = cid.split(":")[0].lower()
+                if (
+                    m_src == target
+                    or target in m_src
+                    or m_src in target
+                    or target_stem == m_stem
+                    or target_stem == cid_slug
+                    or target in cid.lower()
+                ):
+                    filtered.append((cid, corp))
+
             if not filtered:
                 return []
             # Re-run BM25 on filtered subset
