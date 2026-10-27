@@ -1,0 +1,35 @@
+# Core dependencies
+langchain-google-genai>=2.0.0
+google-genai>=1.0.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+langgraph>=0.2.0
+
+# Vector store
+chromadb>=0.5.0
+
+# BM25 retrieval
+rank-bm25>=0.2.2
+
+# Web search
+ddgs>=6.0.0
+
+# Config and env
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+
+# Retry
+tenacity>=8.2.0
+
+# Streamlit UI
+streamlit>=1.38.0
+
+# Evaluation
+numpy>=1.26.0
+
+# Testing
+pytest>=8.0.0
+pytest-mock>=3.14.0
+
+# Optional: Tavily web search (install manually if using)
+# tavily-python>=0.3.0
