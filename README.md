@@ -126,31 +126,9 @@ rm -rf .chroma .cache
 python -m src.ingest evals/corpus --persist .chroma
 ```
 
-### 7. CLI Usage
+---
 
-Ask questions via command-line interface:
-
-- **Single Researcher (fast lookup)**:
-  ```bash
-  python -m src.cli ask "What was Arcturus Technologies' total revenue in 2023?" --mode single --persist .chroma
-  ```
-
-- **Full Multi-Agent Pipeline with Verification**:
-  ```bash
-  python -m src.cli ask "How did CloudSync Pro product revenue change between 2022 and 2023?" --mode multi --persist .chroma
-  ```
-
-- **Honest Abstention (Unanswerable Question)**:
-  ```bash
-  python -m src.cli ask "What was Arcturus Technologies' stock price on December 31, 2023?" --mode multi --persist .chroma
-  ```
-
-- **Web-Augmented Research**:
-  ```bash
-  python -m src.cli ask "What does GDPR stand for and how does it relate to Arcturus policy?" --mode multi --web on --persist .chroma
-  ```
-
-### 8. Streamlit Web Interface
+### 7. Streamlit Web Interface
 
 Launch the interactive UI:
 
@@ -163,63 +141,6 @@ Features in the UI:
 - Drag-and-drop document uploader with chunking status.
 - Expandable live execution trace (`st.status`).
 - Verified source cards showing exact cited passages and provenance.
-
----
-
-## Evaluation Harness
-
-The evaluation harness measures retrieval quality, agent faithfulness, correctness against hand-verified references, and architectural ablation.
-
-### 1. Retrieval Benchmark (Vector vs BM25 vs Hybrid)
-
-Evaluates retrieval hit rate at k (k=3, 6) and Mean Reciprocal Rank (MRR) over all answerable core questions:
-
-```bash
-python -m evals.run_retrieval_eval --persist .chroma
-```
-Results are saved to `evals/results/retrieval_eval.json` and `evals/results/retrieval_eval.md`.
-
-### 2. Agent Evaluation (Dry Run)
-
-Run a 3-question dry run to verify the judge models and metric calculations:
-
-```bash
-python -m evals.run_evals --suite core --mode single --limit 3 --allow-unverified
-```
-
-### 3. Full Architectural Ablation
-
-Runs all 18 core questions across all three configurations:
-- `single`: Direct researcher without planning or independent verification.
-- `multi_noverify`: Planner with parallel researchers; no verification.
-- `multi`: Full pipeline with planner, parallel researchers, and independent verifier.
-
-```bash
-python -m evals.run_evals --suite core --mode all --allow-unverified
-```
-
-### 4. Web Search Suite
-
-Evaluates external web routing accuracy:
-
-```bash
-python -m evals.run_evals --suite web --mode multi --allow-unverified
-```
-
-### 5. Generate Summary and Failure Analysis
-
-Compile the results into the final ablation table:
-
-```bash
-python -m evals.report
-```
-Outputs are written to `evals/results/SUMMARY.md` and `evals/results/FAILURE_ANALYSIS.md`.
-
----
-
-## Evaluation Results
-
-*Evaluation runs are executed locally on your Groq Cloud API quota. Run `python -m evals.run_evals` followed by `python -m evals.report` to populate this section from `evals/results/SUMMARY.md`.*
 
 ---
 
