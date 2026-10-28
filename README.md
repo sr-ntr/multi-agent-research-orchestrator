@@ -2,35 +2,13 @@
 
 A complete, production-grade retrieval-augmented generation (RAG) and multi-agent document research system.
 
-The system ingests markdown and plain text files, indexes them using hybrid retrieval (dense ONNX vector embeddings with FastEmbed fused with sparse BM25 keyword matching), and coordinates an orchestrated team of specialized LLM agents powered by Groq's LPU infrastructure to plan, research, write, and verify grounded answers with verifiable citations at sub-second generation speeds.
+The system ingests markdown and plain text files, indexes them using hybrid retrieval (dense ONNX vector embeddings with FastEmbed fused with sparse BM25 keyword matching), and coordinates an orchestrated team of specialized LLM agents to plan, research, write, and verify grounded answers with verifiable citations at sub-second generation speeds.
 
 ---
 
 ## Architecture Overview
 
-```
- Upload (.txt/.md)
-      |
-      v
-  Ingestion --> Heading-aware chunking --> FastEmbed BGE-small (ONNX / SQLite cache)
-                                                    |
-                                                    v
-                                      Chroma DB (Cosine) + BM25 Index
-                                                    ^
-                                                    | Read-only tools:
-                                                    |   search_documents (Hybrid + RRF)
-                                                    |   get_chunk_context (Adjacent chunks)
-                                                    |   list_documents
-                                                    |   calculate (Safe AST)
-                                                    |   web_search (DuckDuckGo / Tavily)
-                                                    |
- User Question --> [Planner] --fan-out--> [Parallel Researchers] --> [Writer] --> [Verifier]
-                      |                         |                         ^             |
-                      | Decomposes complex      | Bounded tool loop;      |             |
-                      | questions into          | captures evidence into  +-- revise ---+ (max 1)
-                      | sub-questions with      | shared LEDGER                         |
-                      | scope (doc / web)                                               v
-                                                                             Cited Answer + Trace
+![System Architecture](assets/architecture.png)
 ```
 
 ### Core Components
