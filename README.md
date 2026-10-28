@@ -8,9 +8,7 @@ The system ingests markdown and plain text files, indexes them using hybrid retr
 
 ## Architecture Overview
 
-```
 ![System Architecture](assets/architecture.png)
-```
 
 ### Core Components
 
