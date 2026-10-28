@@ -1,6 +1,6 @@
 # Agentic Document Research Assistant
 
-A complete, production-grade retrieval-augmented generation (RAG) and multi-agent document research system powered by **Groq Cloud** and **FastEmbed**.
+A complete, production-grade retrieval-augmented generation (RAG) and multi-agent document research system.
 
 The system ingests markdown and plain text files, indexes them using hybrid retrieval (dense ONNX vector embeddings with FastEmbed fused with sparse BM25 keyword matching), and coordinates an orchestrated team of specialized LLM agents powered by Groq's LPU infrastructure to plan, research, write, and verify grounded answers with verifiable citations at sub-second generation speeds.
 
@@ -80,10 +80,6 @@ pip install -r requirements.txt
 ### 3. API Key Configuration
 
 Create a `.env` file in the project root:
-
-```bash
-cp .env.example .env
-```
 
 Edit `.env` and set your Groq key:
 ```env
