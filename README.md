@@ -10,6 +10,8 @@ The system ingests markdown and plain text files, indexes them using hybrid retr
 
 ![System Architecture](assets/architecture.png)
 
+---
+
 ### Core Components
 
 1. **Heading-Aware Ingestion (`src/ingest.py`)**:
