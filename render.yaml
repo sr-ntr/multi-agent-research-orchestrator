@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: research-assistant
+    runtime: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: MODEL_FAST
+        value: openai/gpt-oss-20b
+      - key: MODEL_STRONG
+        value: openai/gpt-oss-120b
+      - key: MODEL_JUDGE
+        value: openai/gpt-oss-120b
+      - key: EMBEDDING_MODEL
+        value: BAAI/bge-small-en-v1.5
+      - key: EMBEDDING_DIM
+        value: "384"
+      - key: WEB_SEARCH_PROVIDER
+        value: ddgs
+      - key: WEB_ENABLED
+        value: "0"
+      - key: LLM_MAX_CONCURRENCY
+        value: "3"
+      - key: PYTHON_VERSION
+        value: "3.11"
