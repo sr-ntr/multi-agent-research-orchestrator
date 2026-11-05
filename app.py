@@ -12,8 +12,6 @@ Features:
 - Live execution trace streaming using st.status.
 - Interactive citation inspection cards for retrieved passages.
 - Question limit per session (capped at MAX_QUESTIONS_PER_SESSION).
-- Server-side API key (no user key input required).
-- Strictly no emojis.
 """
 
 import os
@@ -55,12 +53,21 @@ CUSTOM_CSS = """
 /* Import Computer Modern web fonts */
 @import url('https://cdn.jsdelivr.net/gh/dreampulse/computer-modern-web-font@master/font.css');
 
+/* Import Google Material Symbols font for Streamlit icons */
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
+
 /* ------------------------------------------------------------------ */
 /* Typography                                                           */
 /* ------------------------------------------------------------------ */
-html, body, [class*="css"], .stMarkdown, .stTextInput, .stSelectbox,
-.stCheckbox, .stButton, .stChatMessage, .stExpander, .stDataFrame,
-.stCaption, .stSidebar, p, span, div, label {
+html, body, .stApp {
+    font-family: "Computer Modern Serif", "CMU Serif", "Latin Modern", Georgia, serif;
+}
+
+/* Apply Computer Modern specifically to text elements, avoiding icon fonts */
+.stMarkdown, .stMarkdown p, .stCaption, [data-testid="stSidebar"] p,
+[data-testid="stSidebar"] label, .stChatMessage p, .stExpander p,
+.stSelectbox label, .stCheckbox label, .stButton button p,
+[data-testid="stChatInput"] textarea, .stDataFrame, label {
     font-family: "Computer Modern Serif", "CMU Serif", "Latin Modern", Georgia, serif !important;
 }
 
@@ -74,6 +81,33 @@ h1, h2, h3, h4, h5, h6 {
 code, pre, .stCodeBlock, kbd {
     font-family: "Computer Modern Typewriter", "CMU Typewriter Text", "Courier New", monospace !important;
     font-size: 0.88em;
+}
+
+/* ------------------------------------------------------------------ */
+/* Protect Material Symbols / Streamlit Ligature Icons                 */
+/* Prevents icons from rendering as raw text strings like             */
+/* 'upload', 'keyboard_double_arrow_left', 'expand_more', etc.        */
+/* ------------------------------------------------------------------ */
+.material-symbols-rounded,
+.material-symbols-outlined,
+[class*="material-symbols"],
+[data-testid="stIconMaterial"],
+[data-testid*="Icon"],
+[data-testid="stSidebarCollapseButton"] span,
+[data-testid="stSidebarCollapseButton"] button,
+[data-testid="stFileUploaderDropzone"] span.material-symbols-rounded,
+[data-testid="stFileUploaderDropzone"] [data-testid="stIconMaterial"],
+[data-testid="stExpanderToggleIcon"] {
+    font-family: "Material Symbols Rounded", "Material Symbols Outlined" !important;
+    font-weight: normal !important;
+    font-style: normal !important;
+    letter-spacing: normal !important;
+    text-transform: none !important;
+    display: inline-block !important;
+    white-space: nowrap !important;
+    word-wrap: normal !important;
+    direction: ltr !important;
+    -webkit-font-smoothing: antialiased !important;
 }
 
 /* ------------------------------------------------------------------ */
@@ -151,7 +185,8 @@ hr {
 /* ------------------------------------------------------------------ */
 /* Buttons                                                             */
 /* ------------------------------------------------------------------ */
-.stButton > button {
+.stButton > button,
+[data-testid="stFileUploaderDropzone"] button {
     font-family: "Computer Modern Serif", "CMU Serif", serif !important;
     background-color: #FAFAF6 !important;
     border: 1px solid #BBBCB6 !important;
@@ -161,7 +196,8 @@ hr {
     transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
-.stButton > button:hover {
+.stButton > button:hover,
+[data-testid="stFileUploaderDropzone"] button:hover {
     background-color: #EDE9DF !important;
     border-color: #6B8F9E !important;
 }
@@ -220,6 +256,12 @@ hr {
 /* File uploader                                                       */
 /* ------------------------------------------------------------------ */
 [data-testid="stFileUploader"] {
+    background-color: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+}
+
+[data-testid="stFileUploaderDropzone"] {
     border: 1.5px dashed #BBBCB6 !important;
     border-radius: 6px !important;
     background-color: #F7F4EE !important;
@@ -408,7 +450,9 @@ def render_sidebar() -> tuple[str, bool]:
             if len(uploaded_files) > MAX_FILES_PER_SESSION:
                 st.error(f"Maximum {MAX_FILES_PER_SESSION} files allowed.")
             else:
-                if st.button("Index Documents", use_container_width=True, type="primary"):
+                if st.button(
+                    "Index Documents", use_container_width=True, type="primary"
+                ):
                     with st.status("Indexing documents...", expanded=True) as status:
                         for uf in uploaded_files:
                             if uf.size > MAX_FILE_BYTES:
@@ -593,7 +637,9 @@ def main() -> None:
         return
 
     if not st.session_state.ingested_files:
-        st.warning("Please upload and index at least one document before asking a question.")
+        st.warning(
+            "Please upload and index at least one document before asking a question."
+        )
         return
 
     # Append user message
@@ -606,7 +652,9 @@ def main() -> None:
     with st.chat_message("assistant"):
         status_container = st.status("Starting research pipeline...", expanded=True)
         try:
-            graph = get_graph_mode(mode, kb=st.session_state.kb, web_enabled=web_enabled)
+            graph = get_graph_mode(
+                mode, kb=st.session_state.kb, web_enabled=web_enabled
+            )
             initial_state = {
                 "question": user_query,
                 "web_enabled": web_enabled,
@@ -633,11 +681,17 @@ def main() -> None:
                             status_container.write(f"`{t}`")
                         final_state.update(node_output)
 
-            answer = final_state.get("final_answer") or final_state.get("draft") or "No answer generated."
+            answer = (
+                final_state.get("final_answer")
+                or final_state.get("draft")
+                or "No answer generated."
+            )
             ledger = final_state.get("ledger", {})
             valid_ids, _invalid = check_citations(answer, ledger)
 
-            status_container.update(label="Research complete", state="complete", expanded=False)
+            status_container.update(
+                label="Research complete", state="complete", expanded=False
+            )
 
             st.markdown(answer)
             render_citations(valid_ids, ledger)
